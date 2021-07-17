@@ -1,0 +1,6 @@
+
+# Ignore video files
+*.h264
+
+# Ignore log files
+*.log
