@@ -142,11 +142,11 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
                 
             if time.time() > gps_timeout:
                 msg = get_gps(port)
-                overlay['lat'] = msg.lat,
-                overlay['lat_dir'] = msg.lat_dir,
-                overlay['lon'] = msg.lon, 
+                overlay['lat'] = round(float(msg.lat), 3),
+                overlay['lat_dir'] = msg.lat_dir, 
+                overlay['lon'] = round(float(msg.lon), 3), 
                 overlay['lon_dir'] = msg.lon_dir,
-                overlay['speed'] = msg.spd_over_grnd * convert
+                overlay['speed'] = int(round(float(msg.spd_over_grnd) * convert))
                 overlay['trk'] = msg.true_course
                 overlay['date'] = msg.datestamp #!!! need to format these (probably with datetime)
                 overlay['time'] = msg.timestamp
