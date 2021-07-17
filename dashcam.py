@@ -31,13 +31,11 @@ def file_sweeper(path=None, max_space=None):
 def get_gps(port):
     '''
     This function reads a nmea string from port and parses gps data
-    Returns False if the incorect nmea sentence was read
-    Returns a nmea object if the correct sentence was read
     '''
-    
     while True:
+       
         try:
-            msg = nmea2.parse(port.readline())
+            msg = pynmea2.parse(port.readline())
             if msg.sentence_type == 'RMC':
                 return msg
         except:
@@ -49,12 +47,14 @@ def shutdown(stream, cam, **args):
     ~Save stream loop
     ~Shutdown pi
     '''
-    # msg = get_gps(port)
-    # date_time = dict(date=msg.date, time=msg.time)
+    # Save current stream to file
     stream.copy_to(format_filename(**args))
+    
     # stop the camera
     print('Stopping recording...')
     cam.stop_recording()
+
+    # Shut system down
     print('Stopping system. Goodby...')
     os.system('sudo shutdown -P now')
 
@@ -81,7 +81,7 @@ def format_filename(date=None, time=None, fmrt='%Y-%m-%d%H:%M:%S', **args):
 # ================== MAIN FUNCTION =======================================
 
 def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vid_dir=None,
-         shutdown_pin=None, highlight_pin=None, speed_conversion=1):
+         shutdown_pin=None, highlight_pin=None, speed_conversion=1, speed_units=''):
     # ensure device perameters type
     res = (int(width), int(height))  # resolution of the video recording 
     frames = int(frames)   # framerate of the video recording
@@ -109,7 +109,8 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
             'speed' : 'x',
             'trk' : 'x',
             'date' : 'xxxxxx',
-            'time' : 'xxxxxx.xx'
+            'time' : 'xxxxxx.xx',
+            'speed_units' : speed_units
             }
 
     # change to the videos directory
@@ -124,6 +125,7 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
     stream = pc.PiCameraCircularIO(cam, seconds=clip_dur)
     # start recording
     cam.start_recording(stream, format='h264')
+    cam.annotate_background = Color('black')
     print('Recording...')
 
     # main while loop
@@ -132,15 +134,14 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
         file_sweeper(path=os.getcwd(),
               max_space=min_space
               )
-
-        # wait while recording
-        # cam.wait_recording(clip_dur - 30)
+        
+        # Annotation loop
         timeout = time.time() + clip_dur - 30
+        gps_timeout = time.time() + 1.5
         while time.time() < timeout:
-            
-            msg = get_gps(port)
-
-            if msg:
+                
+            if time.time() > gps_timeout:
+                msg = get_gps(port)
                 overlay['lat'] = msg.lat,
                 overlay['lat_dir'] = msg.lat_dir,
                 overlay['lon'] = msg.lon, 
@@ -149,12 +150,12 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
                 overlay['trk'] = msg.true_course
                 overlay['date'] = msg.datestamp #!!! need to format these (probably with datetime)
                 overlay['time'] = msg.timestamp
-                msg = False
-            
-            cam.annotate_background = Color('black')
-            cam.annotate_text = '{date} {time} | Position: {lat} {lat_dir} -- {lon} {lon_dir} | Speed: {speed} kph | Trk: {trk}'.format(
-                    **overlay
-                    )
+                gps_timeout = time.time() + 1
+                overlay_text = '{date} {time} | Position: {lat} {lat_dir} -- {lon} {lon_dir} | Speed: {speed} {speed_units} | Trk: {trk}'.format(
+                        **overlay
+                        )
+                cam.annotate_text = overlay_text
+                print(overlay_text)
 
             # Check shutdown button press
             if shutdown_btn.is_held:
