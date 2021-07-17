@@ -9,21 +9,6 @@ import pynmea2
 from gpiozero import Button
 from configparser import ConfigParser
 from picamera import Color
-#from file_sweeper import file_sweeper as clean
-
-# class tic():
-#     '''
-#     Used in debugging to see how long a process takes
-#     '''
-#     def init(self):
-#         self._times = []
-# 
-#     def tic(self):
-#         ''' Initiate timer'''
-#         self._times.append(time.time()) 
-#     def toc(self):
-#         ''' reveal time elapsed '''
-#         print('Time elapsed: {}'.format(time.time() - self._times.pop(0)))
 
 def space_check(min_space):
     '''check to make sure there is enough space in the filesystem'''
