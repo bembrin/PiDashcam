@@ -6,6 +6,7 @@ import os
 import time
 import serial
 import pynmea2
+import threading
 from gpiozero import Button
 from configparser import ConfigParser
 from picamera import Color
@@ -131,10 +132,11 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
     # main while loop
     while True:
         # check the file system and remove oldest video if not enough storage
-        file_sweeper(path=os.getcwd(),
-              max_space=min_space
-              )
-        
+        file_sweeper_TH = threading.Thread(target=file_sweeper,
+                                kwargs=dict(path=os.getcwd(), max_space=min_space)
+                                )
+        file_sweeper_TH.start()
+
         # Annotation loop
         timeout = time.time() + clip_dur - 30
         gps_timeout = time.time() + 1.5
@@ -167,9 +169,9 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
 
         # save the current video
         filename = format_filename(**overlay)
-        stream.copy_to(filename)
+        save_thread = threading.Thread(target=stream.copy_to, args=(filename,))
         print('recording saved to ' + filename )
-    
+        save_thread.start() 
     #stop the camera
     print('Stopping recording...')
     cam.stop_recording()
