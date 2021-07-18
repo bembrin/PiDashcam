@@ -1,12 +1,12 @@
 import picamera as pc
 import psutil
-# import _strptime
 import datetime
 import os
 import time
-import serial
+from serial import Serial
 import pynmea2
-import threading
+from threading import Thread
+from queue import Queue
 from gpiozero import Button
 from configparser import ConfigParser
 from picamera import Color
@@ -78,6 +78,9 @@ def format_filename(date=None, time=None, fmrt='%Y-%m-%d%H:%M:%S', **args):
     filename = now.strftime("%y%m%d%H%M_%d%b%y-%H%M") + '.h264'
     return filename
 
+def gps_loop(q,*args):
+    while True:
+        q.put(get_gps(*args))
 
 # ================== MAIN FUNCTION =======================================
 
@@ -93,7 +96,11 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
    
 
     # initialize the serial port
-    port = serial.Serial('/dev/serial0')
+    port = Serial('/dev/serial0')
+    gps_q = Queue()
+    gps_TH = Thread(target=gps_loop, args=(gps_q, port))
+    gps_TH.daemon = True
+    gps_TH.start()
 
     # initialize shutdown button
     shutdown_btn = Button(shutdown_pin, hold_time=3)
@@ -132,32 +139,30 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
     # main while loop
     while True:
         # check the file system and remove oldest video if not enough storage
-        file_sweeper_TH = threading.Thread(target=file_sweeper,
+        file_sweeper_TH = Thread(target=file_sweeper,
                                 kwargs=dict(path=os.getcwd(), max_space=min_space)
                                 )
         file_sweeper_TH.start()
 
         # Annotation loop
         timeout = time.time() + clip_dur - 30
-        gps_timeout = time.time() + 1.5
         while time.time() < timeout:
                 
-            if time.time() > gps_timeout:
-                msg = get_gps(port)
-                overlay['lat'] = round(float(msg.lat), 3),
-                overlay['lat_dir'] = msg.lat_dir, 
-                overlay['lon'] = round(float(msg.lon), 3), 
-                overlay['lon_dir'] = msg.lon_dir,
-                overlay['speed'] = int(round(float(msg.spd_over_grnd) * convert))
-                overlay['trk'] = msg.true_course
-                overlay['date'] = msg.datestamp #!!! need to format these (probably with datetime)
-                overlay['time'] = msg.timestamp
-                gps_timeout = time.time() + 1
-                overlay_text = '{date} {time} | Position: {lat} {lat_dir} -- {lon} {lon_dir} | Speed: {speed} {speed_units} | Trk: {trk}'.format(
-                        **overlay
-                        )
-                cam.annotate_text = overlay_text
-                print(overlay_text)
+            # if time.time() > gps_timeout:
+            msg = gps_q.get()
+            overlay['lat'] = round(float(msg.lat), 3),
+            overlay['lat_dir'] = msg.lat_dir, 
+            overlay['lon'] = round(float(msg.lon), 3), 
+            overlay['lon_dir'] = msg.lon_dir,
+            overlay['speed'] = int(round(float(msg.spd_over_grnd) * convert))
+            overlay['trk'] = msg.true_course
+            overlay['date'] = msg.datestamp #!!! need to format these (probably with datetime)
+            overlay['time'] = msg.timestamp
+            overlay_text = '{date} {time} | Position: {lat} {lat_dir} -- {lon} {lon_dir} | Speed: {speed} {speed_units} | Trk: {trk}'.format(
+                    **overlay
+                    )
+            cam.annotate_text = overlay_text
+            print(overlay_text)
 
             # Check shutdown button press
             if shutdown_btn.is_held:
@@ -169,7 +174,7 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
 
         # save the current video
         filename = format_filename(**overlay)
-        save_thread = threading.Thread(target=stream.copy_to, args=(filename,))
+        save_thread = Thread(target=stream.copy_to, args=(filename,))
         print('recording saved to ' + filename )
         save_thread.start() 
     #stop the camera
