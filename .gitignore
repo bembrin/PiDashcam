@@ -4,6 +4,10 @@
 
 # Ignore log files
 *.log
+*.err
 
 # Ignore temporary files
 *.tmp
+
+# Pycache files
+*.pyc

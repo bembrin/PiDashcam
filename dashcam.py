@@ -12,26 +12,32 @@ from configparser import ConfigParser
 from picamera import Color
 
 class gps(Thread):
+    ''' 
+    GPS object:
+    
+    '''
     def __init__(self, port):
-        # self.port = port
+        '''initiates the GPS object '''
         Thread.__init__(self)
         self.port = port
         self.msg = None
-        # self.monitor = Thread(target=self._start, args=self.port)
-        # self.monitor.setDaemon(True)
-        # self.monitor.start()
-
 
     def run(self):
+        '''Listens to the serial port on a daemon thread and writes
+        RMC sentences to a temp file.'''
         while True:
             sentence = self.port.readline()
             if sentence.find('RMC') > 0:
-                with open('.gps', 'w') as gps_buffer:
+                with open('gps.tmp', 'w') as gps_buffer:
                     gps_buffer.write(sentence)
     
     def get(self):
-        with open('.gps', 'r') as gps_buffer:
-            self.msg = pynmea2.parse(gps_buffer.readline())
+        '''Parses NMEA strings from a temp file'''
+        with open('gps.tmp', 'r') as gps_buffer:
+            try:
+                self.msg = pynmea2.parse(gps_buffer.readline())
+            except pynmea2.nmea.ParseError:
+                pass
         
         return self.msg
 
@@ -52,18 +58,6 @@ def file_sweeper(path=None, max_space=None):
         f = sorted(os.listdir(path))
         print('Removing: ' + f[0])
         os.remove(f[0])
-
-def get_gps(port, queue):
-    '''
-    This function reads a nmea string from port and parses gps data
-    '''
-    while True:
-        try:
-            msg = pynmea2.parse(port.readline())
-            if msg.sentence_type == 'RMC':
-                return msg #queue.put(msg)
-        except:
-            pass
 
 def shutdown(cam, vid_file):
     '''
@@ -138,7 +132,10 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     
     # initialize gps
     port = Serial('/dev/serial0')
-    msg = get_gps(port, None)
+    GPS = gps(port)
+    GPS.setDaemon(True)
+    GPS.start()
+    msg = GPS.get()
 
     # Initialize the overaly text
     overlay = {
@@ -192,7 +189,6 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     # main while loop
     while True:
         # check the file system and remove oldest video if not enough storage
-        # file_sweeper(path=('./vids', max_space=min_space)
         file_sweeper_TH = Thread(target=file_sweeper,
                                 kwargs=dict(path=vid_dir, max_space=min_space)
                                 )
@@ -203,18 +199,17 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
         tic = time.time()
         while time.time() < timeout:
            
-            # update overlay text
-            msg = get_gps(port, None) # gps_q.get()
+            msg = GPS.get()
             overlay['lat'] =msg.lat
             overlay['lat_dir'] = msg.lat_dir, 
             overlay['lon'] = msg.lon 
             overlay['lon_dir'] = msg.lon_dir,
             overlay['speed'] = msg.spd_over_grnd
             overlay['trk'] = msg.true_course
-            overlay['date'] = msg.datestamp #!!! need to format these (probably with datetime)
+            overlay['date'] = msg.datestamp 
             overlay['time'] = msg.timestamp
             cam.annotate_text = overlay_text(overlay)
-            print(overlay_text(overlay))
+            # print(overlay_text(overlay))
 
             # Check shutdown button press
             toc = time.time() - tic
@@ -225,8 +220,8 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
             # Check highlight button press
             if highlight_button.is_pressed:
                 highlight(filename, highlight_dir)
-            print('Time between shutdown checks: {}\n'.format(toc))
-
+            # print('Time between shutdown checks: {}\n'.format(toc))
+            time.sleep(0.2)
 
         # save the current video
         filename = os.path.join(vid_dir, format_filename(**overlay))
