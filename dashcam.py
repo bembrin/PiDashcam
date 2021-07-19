@@ -89,7 +89,8 @@ def overlay_text(fields):
 # ================== MAIN FUNCTION =======================================
 
 def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_space=None,
-        vid_dir=None, shutdown_pin=None, highlight_pin=None, speed_conversion=1, speed_units=''):
+        vid_dir=None, highlight_dir=None, shutdown_pin=None, highlight_pin=None, 
+        status_pin=None, rotation_pin=None, speed_conversion=1, speed_units='', setup=True):
     
     # ensure device perameters type
     res = (int(width), int(height))     # resolution of the video recording 
@@ -99,9 +100,14 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     min_space = int(min_space)          # the maximum percentage of used storage allowed
     convert = float(speed_conversion)   # Speed conversion factor
     
+    if setup:
+        print('Setting up PiDashcam...')
+        import setup
+    print('Setup complete...')
+    exit()
     # make video directory if it doesn't exist
-    if not os.isdir(vid_dir):
-        os.system('mkdir {}'.format(vid_dir)
+    # if not os.isdir(vid_dir):
+    #     os.system('mkdir {}'.format(vid_dir)
 
     # initialize gps
     port = Serial('/dev/serial0')
