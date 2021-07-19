@@ -7,9 +7,33 @@ from serial import Serial
 import pynmea2
 from threading import Thread
 from queue import Queue
-from gpiozero import Button
+from gpiozero import Button, LED
 from configparser import ConfigParser
 from picamera import Color
+
+class gps(Thread):
+    def __init__(self, port):
+        # self.port = port
+        Thread.__init__(self)
+        self.port = port
+        self.msg = None
+        # self.monitor = Thread(target=self._start, args=self.port)
+        # self.monitor.setDaemon(True)
+        # self.monitor.start()
+
+
+    def run(self):
+        while True:
+            sentence = self.port.readline()
+            if sentence.find('RMC') > 0:
+                with open('.gps', 'w') as gps_buffer:
+                    gps_buffer.write(sentence)
+    
+    def get(self):
+        with open('.gps', 'r') as gps_buffer:
+            self.msg = pynmea2.parse(gps_buffer.readline())
+        
+        return self.msg
 
 def space_check(min_space):
     '''check to make sure there is enough space in the filesystem'''
@@ -57,13 +81,15 @@ def shutdown(cam, vid_file):
     print('Stopping system. Goodby...')
     os.system('sudo shutdown -P now')
 
-def highlight(filename):#stream, **args):
+def highlight(filename, highlight_dir):#stream, **args):
     '''
     Save current loop to perminant folder
     '''
-    perm_file = filename.split('/')[-1]
-    os.system('cp {} ./permenant/{}'.format(filename, perm_file))
-    print('Hilighting current loop...')
+    status_LED.blink(on_time=0.2, off_time=0.2)
+    perm_file = os.path.join(highlight_dir,filename.split('/')[-1])
+    os.system('cp {} {}'.format(filename, perm_file))
+    print('Hilighting {}...'.format(filename))
+    normal_status()
     # pwd = os.getcwd()
     # parent = os.path.dirname(pwd)
     # save_path = os.path.join(parent,'permanent',format_filename(**args))
@@ -84,6 +110,10 @@ def overlay_text(fields):
             )
      return overlay_text
 
+def normal_status():
+    ''' LED displays normal status blink pattern'''
+    status_LED.blink(on_time=1, off_time=2)
+
 
 
 # ================== MAIN FUNCTION =======================================
@@ -93,6 +123,7 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
         status_pin=None, rotation_pin=None, speed_conversion=1, speed_units='', setup=True):
     
     # ensure device perameters type
+    setup = int(setup)
     res = (int(width), int(height))     # resolution of the video recording 
     frames = int(frames)                # framerate of the video recording
     quality = int(quality)
@@ -103,20 +134,11 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     if setup:
         print('Setting up PiDashcam...')
         import setup
-    print('Setup complete...')
-    exit()
-    # make video directory if it doesn't exist
-    # if not os.isdir(vid_dir):
-    #     os.system('mkdir {}'.format(vid_dir)
-
+        print('Setup complete...')
+    
     # initialize gps
     port = Serial('/dev/serial0')
     msg = get_gps(port, None)
-    # gps_q = Queue()
-    # gps_TH = Thread(target=get_gps, args=(port, gps_q))
-    # gps_TH.daemon = True
-    # gps_TH.start()
-    # msg = gps_q.get()
 
     # Initialize the overaly text
     overlay = {
@@ -131,10 +153,13 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
             'speed_units' : speed_units
             }
     
+
     # Start Recording
     filename = os.path.join(vid_dir, format_filename(**overlay))
     vid_file = [open(filename, 'wb')]
     cam = pc.PiCamera(resolution=res, framerate=frames)
+    flip_switch = Button(rotation_pin, pull_up=False)
+    cam.vflip = flip_switch.is_pressed
     cam.start_recording(vid_file[0], 
                         format='h264',
                         quality=quality,
@@ -157,14 +182,19 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     shutdown_pin = Button(shutdown_pin, pull_up=False)
     
     # initialize highlight button
-    highlight_button = Button(highlight_pin)
-    
+    highlight_button = Button(highlight_pin, pull_up=False)
+
+    # initialize status LED
+    global status_LED
+    status_LED = LED(status_pin)
+    status_LED.blink(on_time=1, off_time=4)
+
     # main while loop
     while True:
         # check the file system and remove oldest video if not enough storage
         # file_sweeper(path=('./vids', max_space=min_space)
         file_sweeper_TH = Thread(target=file_sweeper,
-                                kwargs=dict(path='./vids/', max_space=min_space)
+                                kwargs=dict(path=vid_dir, max_space=min_space)
                                 )
         file_sweeper_TH.start()
 
@@ -193,8 +223,8 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
             tic = time.time()
             
             # Check highlight button press
-            if False:
-                highlight(highlihgt_stream, **overlay)
+            if highlight_button.is_pressed:
+                highlight(filename, highlight_dir)
             print('Time between shutdown checks: {}\n'.format(toc))
 
 
