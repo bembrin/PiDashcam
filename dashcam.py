@@ -111,8 +111,6 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
     gps_TH = Thread(target=get_gps, args=(port, gps_q))
     gps_TH.daemon = True
     gps_TH.start()
-    
-    time.sleep(1)
     msg = gps_q.get()
 
     # Initialize the overaly text
@@ -129,13 +127,13 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
             }
     
     # Start Recording
-    filename = format_filename(**overlay)
+    filename = os.path.join('vids', format_filename(**overlay))
     vid_file = [open(filename, 'wb')]
     cam = pc.PiCamera(resolution=res, framerate=frames)
     cam.start_recording(vid_file[0], 
                         format='h264',
-                        quality=25,
-                        resize=(1920,1080),
+                        quality=15,
+                        resize=res,
                         sps_timing=True
                         )
     cam.annotate_background = Color('black')
@@ -143,25 +141,11 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
     print('Recording to {}...'.format(filename)) 
 
     # initialize shutdown button
-    # shutdown_btn = Button(shutdown_pin, hold_time=3)
     shutdown_pin = Button(shutdown_pin, pull_up=False)
     
     # initialize highlight button
     highlight_button = Button(highlight_pin)
     
-   
-    # initialize the camera object
-    # cam = pc.PiCamera(
-    #         resolution = res,
-    #         framerate = frames
-    #         )
-    # initualize the video stream
-    # stream = pc.PiCameraCircularIO(cam, seconds=clip_dur)
-    # # start recording
-    # cam.start_recording(stream, format='h264')
-    # cam.annotate_background = Color('black')
-    # print('Recording...')
-
     # main while loop
     while True:
         # check the file system and remove oldest video if not enough storage
@@ -201,19 +185,14 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
 
 
         # save the current video
-        filename = format_filename(**overlay)
+        filename = os.path.join('vids',format_filename(**overlay))
         vid_file.append(open(filename, 'wb'))
         cam.split_recording(vid_file[-1])
         vid_file.pop(0).close()
         print('recording to ' + filename )
     
-    #stop the camera
-    print('Stopping recording...')
-    cam.stop_recording()
-    exit()
-
-
 if __name__ == "__main__":
+    # get arguments for main() from the config file
     config = ConfigParser()
     config.read('config.ini')
     settings = config['SETTINGS']
