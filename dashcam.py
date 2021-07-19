@@ -191,12 +191,15 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
             # Check shutdown button press
             toc = time.time() - tic
             if not shutdown_pin.is_pressed:
-                shutdown(stream, cam, **overlay)
+                shutdown(cam, vid_file.pop(-1))
             tic = time.time()
+            
             # Check highlight button press
             if False:
                 highlight(stream, **overlay)
             print('Time between shutdown checks: {}'.format(toc))
+
+
         # save the current video
         filename = format_filename(**overlay)
         vid_file.append(open(filename, 'wb'))
