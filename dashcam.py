@@ -29,7 +29,7 @@ def file_sweeper(path=None, max_space=None):
         print('Removing: ' + f[0])
         os.remove(f[0])
 
-def get_gps(port):
+def get_gps(port, queue):
     '''
     This function reads a nmea string from port and parses gps data
     '''
@@ -38,22 +38,25 @@ def get_gps(port):
         try:
             msg = pynmea2.parse(port.readline())
             if msg.sentence_type == 'RMC':
-                return msg
+                queue.put(msg)
         except:
             pass
 
-def shutdown(stream, cam, **args):
+def shutdown(cam, vid_file):
     '''
     safe shutdown of pi
     ~Save stream loop
     ~Shutdown pi
     '''
     # Save current stream to file
-    stream.copy_to(format_filename(**args))
+    # filename = format_filename(**args)
+    # print('Saving file to {}...'.format(filename))
+    # stream.copy_to(filename)
     
     # stop the camera
     print('Stopping recording...')
     cam.stop_recording()
+    vid_file.close()
 
     # Shut system down
     print('Stopping system. Goodby...')
@@ -82,6 +85,11 @@ def gps_loop(q,*args):
     while True:
         q.put(get_gps(*args))
 
+def overlay_text(fields):
+     overlay_text = '{date} {time} | Posit:ion: {lat} {lat_dir} -- {lon} {lon_dir} | Speed: {speed} {speed_units} | Trk: {trk}'.format(
+            **fields
+            )
+     return overlay_text
 # ================== MAIN FUNCTION =======================================
 
 def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vid_dir=None,
@@ -93,20 +101,19 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
     min_space = int(min_space)  # the maximum percentage of used storage allowed
     convert = float(speed_conversion)     # Speed conversion factor
     # vid_dir = '/home/pi/dashcam/vids'  # Directory where clips are stored
-   
-
+      
+    # change to the videos directory
+    os.chdir(vid_dir)
+    
     # initialize the serial port
     port = Serial('/dev/serial0')
     gps_q = Queue()
-    gps_TH = Thread(target=gps_loop, args=(gps_q, port))
+    gps_TH = Thread(target=get_gps, args=(port, gps_q))
     gps_TH.daemon = True
     gps_TH.start()
-
-    # initialize shutdown button
-    shutdown_btn = Button(shutdown_pin, hold_time=3)
-
-    # initialize highlight button
-    highlight_button = Button(highlight_pin)
+    
+    time.sleep(1)
+    msg = gps_q.get()
 
     # Initialize the overaly text
     overlay = {
@@ -116,25 +123,44 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
             'lon_dir' : 'x',
             'speed' : 'x',
             'trk' : 'x',
-            'date' : 'xxxxxx',
-            'time' : 'xxxxxx.xx',
+            'date' : msg.datestamp,
+            'time' : msg.timestamp,
             'speed_units' : speed_units
             }
+    
+    # Start Recording
+    filename = format_filename(**overlay)
+    vid_file = [open(filename, 'wb')]
+    cam = pc.PiCamera(resolution=res, framerate=frames)
+    cam.start_recording(vid_file[0], 
+                        format='h264',
+                        quality=25,
+                        resize=(1920,1080),
+                        sps_timing=True
+                        )
+    cam.annotate_background = Color('black')
+    cam.annotate_text = overlay_text(overlay)
+    print('Recording to {}...'.format(filename)) 
 
-    # change to the videos directory
-    os.chdir(vid_dir)
+    # initialize shutdown button
+    # shutdown_btn = Button(shutdown_pin, hold_time=3)
+    shutdown_pin = Button(shutdown_pin, pull_up=False)
+    
+    # initialize highlight button
+    highlight_button = Button(highlight_pin)
+    
    
     # initialize the camera object
-    cam = pc.PiCamera(
-            resolution = res,
-            framerate = frames
-            )
+    # cam = pc.PiCamera(
+    #         resolution = res,
+    #         framerate = frames
+    #         )
     # initualize the video stream
-    stream = pc.PiCameraCircularIO(cam, seconds=clip_dur)
-    # start recording
-    cam.start_recording(stream, format='h264')
-    cam.annotate_background = Color('black')
-    print('Recording...')
+    # stream = pc.PiCameraCircularIO(cam, seconds=clip_dur)
+    # # start recording
+    # cam.start_recording(stream, format='h264')
+    # cam.annotate_background = Color('black')
+    # print('Recording...')
 
     # main while loop
     while True:
@@ -145,38 +171,39 @@ def main(height=None, width=None, frames=None, clip_dur=None, min_space=None, vi
         file_sweeper_TH.start()
 
         # Annotation loop
-        timeout = time.time() + clip_dur - 30
+        timeout = time.time() + clip_dur #- 30
+        tic = time.time()
         while time.time() < timeout:
-                
-            # if time.time() > gps_timeout:
+           
+            # update overlay text
             msg = gps_q.get()
-            overlay['lat'] = round(float(msg.lat), 3),
+            overlay['lat'] =msg.lat
             overlay['lat_dir'] = msg.lat_dir, 
-            overlay['lon'] = round(float(msg.lon), 3), 
+            overlay['lon'] = msg.lon 
             overlay['lon_dir'] = msg.lon_dir,
-            overlay['speed'] = int(round(float(msg.spd_over_grnd) * convert))
+            overlay['speed'] = msg.spd_over_grnd
             overlay['trk'] = msg.true_course
             overlay['date'] = msg.datestamp #!!! need to format these (probably with datetime)
             overlay['time'] = msg.timestamp
-            overlay_text = '{date} {time} | Position: {lat} {lat_dir} -- {lon} {lon_dir} | Speed: {speed} {speed_units} | Trk: {trk}'.format(
-                    **overlay
-                    )
-            cam.annotate_text = overlay_text
-            print(overlay_text)
+            cam.annotate_text = overlay_text(overlay)
+            print(overlay_text(overlay))
 
             # Check shutdown button press
-            if shutdown_btn.is_held:
+            toc = time.time() - tic
+            if not shutdown_pin.is_pressed:
                 shutdown(stream, cam, **overlay)
-
+            tic = time.time()
             # Check highlight button press
             if False:
                 highlight(stream, **overlay)
-
+            print('Time between shutdown checks: {}'.format(toc))
         # save the current video
         filename = format_filename(**overlay)
-        save_thread = Thread(target=stream.copy_to, args=(filename,))
-        print('recording saved to ' + filename )
-        save_thread.start() 
+        vid_file.append(open(filename, 'wb'))
+        cam.split_recording(vid_file[-1])
+        vid_file.pop(0).close()
+        print('recording to ' + filename )
+    
     #stop the camera
     print('Stopping recording...')
     cam.stop_recording()
