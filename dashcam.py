@@ -32,13 +32,19 @@ class gps(Thread):
     
     def get(self):
         '''Parses NMEA strings from a temp file'''
-        with open('gps.tmp', 'r') as gps_buffer:
+        nofile = True
+        while nofile:
             try:
-                self.msg = pynmea2.parse(gps_buffer.readline())
-            except pynmea2.nmea.ParseError:
-                pass
-        
-        return self.msg
+                with open('gps.tmp', 'r') as gps_buffer:
+                    try:
+                        self.msg = pynmea2.parse(gps_buffer.readline())
+                    except pynmea2.nmea.ParseError:
+                        pass
+                
+                return self.msg
+            except IOError:
+                time.sleep(1)
+
 
 def space_check(min_space):
     '''check to make sure there is enough space in the filesystem'''
@@ -131,6 +137,7 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     min_space = int(min_space)          # the maximum percentage of used storage allowed
     convert = float(speed_conversion)   # Speed conversion factor
     
+    print('Check setup...')
     if setup:
         print('Setting up PiDashcam...')
         import setup
