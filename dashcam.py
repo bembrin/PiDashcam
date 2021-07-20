@@ -14,7 +14,6 @@ from picamera import Color
 class gps(Thread):
     ''' 
     GPS object:
-    
     '''
     def __init__(self, port):
         '''initiates the GPS object '''
@@ -65,7 +64,6 @@ def shutdown(cam, vid_file):
     ~Save stream loop
     ~Shutdown pi
     '''
-    
     # stop the camera
     print('Stopping recording...')
     cam.stop_recording()
@@ -84,10 +82,13 @@ def highlight(filename, highlight_dir):#stream, **args):
     os.system('cp {} {}'.format(filename, perm_file))
     print('Hilighting {}...'.format(filename))
     normal_status()
-    # pwd = os.getcwd()
-    # parent = os.path.dirname(pwd)
-    # save_path = os.path.join(parent,'permanent',format_filename(**args))
-    # stream.copy_to(save_path)
+
+def highlight_loop(stream, highlight_dir, **args):
+    print('Saving highlight clip...')
+    filename = 'highlight_' + format_filename(**args)
+    save_path = os.path.join(highlight_dir, filename)
+    stream.copy_to(save_path)
+    print('Highlight clip saved to ' + save_path)
 
 def format_filename(date=None, time=None, fmrt='%Y-%m-%d%H:%M:%S', **args):
     '''
@@ -106,7 +107,12 @@ def overlay_text(fields):
 
 def normal_status():
     ''' LED displays normal status blink pattern'''
-    status_LED.blink(on_time=1, off_time=2)
+    status_LED.blink(on_time=1, off_time=1)
+
+def highlight_status():
+    '''Highlight clip blink pattern'''
+    status_LED.blink(on_time=0.2, off_time=0.2, n=5, background=False)
+    normal_status()
 
 
 
@@ -168,12 +174,13 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     print('Recording to {}...'.format(filename)) 
     
     # Start Highlight stream
-    # highlight_stream = pc.PiCameraCircularIO(cam, seconds=60, splitter_port=2)
-    # cam.start_recording(highlight_stream, 
-    #                     splitter_port=2,
-    #                     format='h264',
-    #                     quality=30,
-    #                     )
+    highlight_stream = pc.PiCameraCircularIO(cam, seconds=60, splitter_port=2)
+    cam.start_recording(highlight_stream,
+                        resize=res,
+                        splitter_port=2,
+                        format='h264',
+                        quality=25,
+                        )
 
     # initialize shutdown button
     shutdown_pin = Button(shutdown_pin, pull_up=False)
@@ -184,7 +191,7 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     # initialize status LED
     global status_LED
     status_LED = LED(status_pin)
-    status_LED.blink(on_time=1, off_time=4)
+    status_LED.blink(on_time=1, off_time=1)
 
     # main while loop
     while True:
@@ -219,7 +226,17 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
             
             # Check highlight button press
             if highlight_button.is_pressed:
-                highlight(filename, highlight_dir)
+                print('Highlight button pressed...')
+                highlight_thread = Thread(target=highlight_loop, 
+                                          args=(highlight_stream, 
+                                                highlight_dir,
+                                                ),
+                                           kwargs=overlay
+                                           )
+                blink_thread = Thread(target=highlight_status)
+                highlight_thread.start()
+                blink_thread.start()
+            
             # print('Time between shutdown checks: {}\n'.format(toc))
             time.sleep(0.2)
 
