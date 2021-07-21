@@ -11,39 +11,60 @@ from gpiozero import Button, LED
 from configparser import ConfigParser
 from picamera import Color
 
-class gps(Thread):
-    ''' 
-    GPS object:
-    '''
-    def __init__(self, port):
-        '''initiates the GPS object '''
-        Thread.__init__(self)
-        self.port = port
-        self.msg = None
-
-    def run(self):
-        '''Listens to the serial port on a daemon thread and writes
-        RMC sentences to a temp file.'''
-        while True:
-            sentence = self.port.readline()
-            if sentence.find('RMC') > 0:
-                with open('gps.tmp', 'w') as gps_buffer:
-                    gps_buffer.write(sentence)
-    
-    def get(self):
-        '''Parses NMEA strings from a temp file'''
-        nofile = True
-        while nofile:
+# class gps(Thread):
+#     ''' 
+#     GPS object:
+#     '''
+#     def __init__(self, port):
+#         '''initiates the GPS object '''
+#         Thread.__init__(self)
+#         self.port = port
+#         self.msg = None
+#         self.available = False
+#         with open('gps.tmp', 'w') as file_init:
+#             file_init.write(' ')
+# 
+# 
+#     def run(self):
+#         '''Listens to the serial port on a daemon thread and writes
+#         RMC sentences to a temp file.'''
+#         while True:
+#             sentence = self.port.readline()
+#             if sentence.find('RMC') > 0:
+#                 with open('gps.tmp', 'w') as gps_buffer:
+#                     gps_buffer.write(sentence)
+#     
+#     def get(self):
+#         '''Parses NMEA strings from a temp file'''
+#         nofile = True
+#         while nofile:
+#             try:
+#                 with open('gps.tmp', 'r') as gps_buffer:
+#                     try:
+#                         self.msg = pynmea2.parse(gps_buffer.readline())
+#                     except pynmea2.nmea.ParseError:
+#                         pass
+#                 
+#                 return self.msg
+#             except IOError:
+#                 time.sleep(1)
+# 
+#     def wait(self):
+#         while not self.available:
+#             with open('gps.tmp', 'r') as gps_buffer:
+#                 line = gps_buffer.readline()
+#                 if line.find('RMC') > 0:
+#                     self.available = True
+def get_GPS(port):
+    while True:
+        sentence = port.readline()
+        if sentence.find('RMC') > 0:
             try:
-                with open('gps.tmp', 'r') as gps_buffer:
-                    try:
-                        self.msg = pynmea2.parse(gps_buffer.readline())
-                    except pynmea2.nmea.ParseError:
-                        pass
-                
-                return self.msg
-            except IOError:
-                time.sleep(1)
+                return pynmea2.parse(sentence)
+            except pynmea2.nmea.ParseError:
+                pass
+
+
 
 
 def space_check(min_space):
@@ -122,6 +143,7 @@ def highlight_status():
 
 
 
+
 # ================== MAIN FUNCTION =======================================
 
 def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_space=None,
@@ -145,10 +167,11 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     
     # initialize gps
     port = Serial('/dev/serial0')
-    GPS = gps(port)
-    GPS.setDaemon(True)
-    GPS.start()
-    msg = GPS.get()
+    # GPS = gps(port)
+    # GPS.setDaemon(True)
+    # GPS.start()
+    # GPS.wait()
+    msg = get_GPS(port) # GPS.get()
 
     # Initialize the overaly text
     overlay = {
@@ -158,8 +181,8 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
             'lon_dir' : 'x',
             'speed' : 'x',
             'trk' : 'x',
-            'date' : msg.datestamp,
-            'time' : msg.timestamp,
+            'date' :  msg.datestamp, #  datetime.datetime.strftime('%H:%M:%S')
+            'time' :  msg.timestamp, #  datetime.datetime.strftime('%Y-%m-%d')mp,
             'speed_units' : speed_units
             }
     
@@ -181,13 +204,13 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     print('Recording to {}...'.format(filename)) 
     
     # Start Highlight stream
-    highlight_stream = pc.PiCameraCircularIO(cam, seconds=60, splitter_port=2)
-    cam.start_recording(highlight_stream,
-                        resize=res,
-                        splitter_port=2,
-                        format='h264',
-                        quality=25,
-                        )
+    # highlight_stream = pc.PiCameraCircularIO(cam, seconds=60, splitter_port=2)
+    # cam.start_recording(highlight_stream,
+    #                     resize=res,
+    #                     splitter_port=2,
+    #                     format='h264',
+    #                     quality=25,
+    #                     )
 
     # initialize shutdown button
     shutdown_pin = Button(shutdown_pin, pull_up=False)
@@ -203,17 +226,18 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
     # main while loop
     while True:
         # check the file system and remove oldest video if not enough storage
-        file_sweeper_TH = Thread(target=file_sweeper,
-                                kwargs=dict(path=vid_dir, max_space=min_space)
-                                )
-        file_sweeper_TH.start()
+        # file_sweeper_TH = Thread(target=file_sweeper,
+        #                         kwargs=dict(path=vid_dir, max_space=min_space)
+        #                         )
+        # file_sweeper_TH.start()
+        file_sweeper(vid_dir, max_space=min_space)
 
         # Annotation loop
         timeout = time.time() + clip_dur #- 30
         tic = time.time()
         while time.time() < timeout:
            
-            msg = GPS.get()
+            msg = get_GPS(port)
             overlay['lat'] =msg.lat
             overlay['lat_dir'] = msg.lat_dir, 
             overlay['lon'] = msg.lon 
@@ -232,7 +256,7 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
             tic = time.time()
             
             # Check highlight button press
-            if highlight_button.is_pressed:
+            if False: # highlight_button.is_pressed:
                 print('Highlight button pressed...')
                 highlight_thread = Thread(target=highlight_loop, 
                                           args=(highlight_stream, 
@@ -244,8 +268,8 @@ def main(height=None, width=None, frames=None, quality=None, clip_dur=None, min_
                 highlight_thread.start()
                 blink_thread.start()
             
-            # print('Time between shutdown checks: {}\n'.format(toc))
-            time.sleep(0.2)
+            print('Time between shutdown checks: {}\n'.format(toc))
+            # time.sleep(0.2)
 
         # save the current video
         filename = os.path.join(vid_dir, format_filename(**overlay))
